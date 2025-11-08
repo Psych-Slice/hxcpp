@@ -76,7 +76,7 @@
   <flag value="-Wno-invalid-offsetof" />
   <flag value="-Wno-return-type-c-linkage" />
   <flag value="-Wno-parentheses" />
-  
+
 </compiler>
 
 
@@ -106,7 +106,9 @@
   -->
   <prefix value="lib"/>
   <lib name="-llog"/>
-    
+  <section if="HXCPP_ANDROID_BUILD_ID">
+    <flag value='-Wl,--build-id=sha1'/>
+  </section>
 </linker>
     
 </xml>
