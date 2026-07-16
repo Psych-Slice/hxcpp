@@ -61,7 +61,6 @@
   <flag value="-DHXCPP_ANDROID_PLATFORM=${HXCPP_ANDROID_PLATFORM}" />
 
   <!-- Options -->
-  <cppflag value="-std=c++17" if="HXCPP_CPP17" />
   <flag value="-flto" if="HXCPP_OPTIMIZE_LINK" unless="debug"/>
   <flag value="-fvisibility=hidden"/>
   <flag value="-ffunction-sections"/>
@@ -109,6 +108,7 @@
   <section if="HXCPP_ANDROID_BUILD_ID">
     <flag value='-Wl,--build-id=sha1'/>
   </section>
+  <ext value=".so"/>
 </linker>
     
 </xml>

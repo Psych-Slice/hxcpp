@@ -14,8 +14,11 @@ typedef int SOCKET;
 #include <hxcpp.h>
 #include <hx/OS.h>
 
-#if defined(NEKO_MAC) && !defined(IPHONE) && !defined(APPLETV)
+#if defined(NEKO_MAC) || defined(IPHONE) || defined(APPLETV)
 #include <Security/Security.h>
+#endif
+#if defined(IPHONE) || defined(APPLETV)
+#include <CoreFoundation/CoreFoundation.h>
 #endif
 
 typedef size_t socket_int;
@@ -73,7 +76,7 @@ struct sslctx : public hx::Object
 		((sslctx *)(obj.mPtr))->destroy();
 	}
 
-	String toString() { return HX_CSTRING("sslctx"); }
+	String toString() HXCPP_OVERRIDE { return HX_CSTRING("sslctx"); }
 };
 
 struct sslconf : public hx::Object
@@ -104,7 +107,7 @@ struct sslconf : public hx::Object
 		((sslconf *)(obj.mPtr))->destroy();
 	}
 
-	String toString() { return HX_CSTRING("sslconfig"); }
+	String toString() HXCPP_OVERRIDE { return HX_CSTRING("sslconfig"); }
 };
 
 struct sslcert : public hx::Object
@@ -144,7 +147,7 @@ struct sslcert : public hx::Object
 		((sslcert *)(obj.mPtr))->destroy();
 	}
 
-	String toString() { return HX_CSTRING("sslcert"); }
+	String toString() HXCPP_OVERRIDE { return HX_CSTRING("sslcert"); }
 };
 
 struct sslpkey : public hx::Object
@@ -175,7 +178,7 @@ struct sslpkey : public hx::Object
 		((sslpkey *)(obj.mPtr))->destroy();
 	}
 
-	String toString() { return HX_CSTRING("sslpkey"); }
+	String toString() HXCPP_OVERRIDE { return HX_CSTRING("sslpkey"); }
 };
 
 static mbedtls_entropy_context entropy;
@@ -361,12 +364,12 @@ int _hx_ssl_recv( Dynamic hssl, Array<unsigned char> buf, int p, int l ) {
 		HANDLE_EINTR(recv_again);
 		hx::Throw(HX_CSTRING("ssl network error"));
 	}
-	if( dlen < 0 ) {  
+	if( dlen < 0 ) {
                 if( dlen == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY ) {
                   mbedtls_ssl_close_notify( ssl->s );
 	  	  return 0;
                 }
-		hx::Throw( HX_CSTRING("ssl_recv") ); 
+		hx::Throw( HX_CSTRING("ssl_recv") );
 	}
 	return dlen;
 }
@@ -463,14 +466,57 @@ void _hx_ssl_conf_close( Dynamic hconf ) {
 	conf->destroy();
 }
 
+#if defined(IPHONE) || defined(APPLETV)
+static int apple_verify_cb(void *data, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+	// use mbedtls validate the chain structure and we validate with the iOS system trust store to replace the missing CA bundle
+	if (depth != 0) {
+		*flags = 0;
+		return 0;
+	}
+
+	CFDataRef derData = CFDataCreate(NULL, crt->raw.p, crt->raw.len);
+	if (!derData) return 0;
+
+	SecCertificateRef secCert = SecCertificateCreateWithData(NULL, derData);
+	CFRelease(derData);
+	if (!secCert) return 0;
+
+	SecPolicyRef policy = SecPolicyCreateSSL(true, NULL);
+	CFArrayRef certs = CFArrayCreate(NULL, (const void **)&secCert, 1, &kCFTypeArrayCallBacks);
+	SecTrustRef trust = NULL;
+	SecTrustCreateWithCertificates(certs, policy, &trust);
+	CFRelease(certs);
+	CFRelease(policy);
+	CFRelease(secCert);
+
+	CFErrorRef err = NULL;
+	bool trusted = SecTrustEvaluateWithError(trust, &err);
+	CFRelease(trust);
+	if (err) CFRelease(err);
+
+	if (trusted) *flags = 0;
+	return 0;
+}
+#endif
+
 void _hx_ssl_conf_set_ca( Dynamic hconf, Dynamic hcert ) {
 	sslconf *conf = val_conf(hconf);
+#if defined(IPHONE) || defined(APPLETV)
+	// always attach Apple system verification callback
+	mbedtls_ssl_conf_verify(conf->c, apple_verify_cb, NULL);
+
+	sslcert *cert = val_cert(hcert);
+	// make sure the ca chain is set even if null
+	mbedtls_ssl_conf_ca_chain(conf->c, cert ? cert->c : NULL, NULL);
+
+#else
 	if( hconf.mPtr ){
 		sslcert *cert = val_cert(hcert);
 		mbedtls_ssl_conf_ca_chain( conf->c, cert->c, NULL );
 	}else{
 		mbedtls_ssl_conf_ca_chain( conf->c, NULL, NULL );
 	}
+#endif
 }
 
 void _hx_ssl_conf_set_verify( Dynamic hconf, int mode ) {
@@ -495,10 +541,16 @@ void _hx_ssl_conf_set_cert( Dynamic hconf, Dynamic hcert, Dynamic hpkey ) {
 
 static int sni_callback( void *arg, mbedtls_ssl_context *ctx, const unsigned char *name, size_t len ){
 	if( name && arg ){
+#if (HXCPP_API_LEVEL>=500)
+		auto cb  = hx::Callable<::Dynamic(::String)>(Dynamic(static_cast<hx::Object*>(arg)));
+		auto n   = reinterpret_cast<const char*>(name);
+		auto ret = cb(String(n, strlen(n)));
+#else
 		Dynamic cb = new Dynamic();
 		cb.mPtr = (hx::Object*)arg;
 		const char *n = (const char *)name;
 		Dynamic ret = cb->__run( String(n,strlen(n)) );
+#endif
 		if( ret != null() ){
 			// TODO authmode and ca
 			Dynamic hcert = ret->__Field(HX_CSTRING("cert"), hx::paccDynamic);
@@ -512,7 +564,11 @@ static int sni_callback( void *arg, mbedtls_ssl_context *ctx, const unsigned cha
 	return -1;
 }
 
+#if (HXCPP_API_LEVEL>=500)
+void _hx_ssl_conf_set_servername_callback(Dynamic hconf, ::hx::Callable<::Dynamic(String)> cb) {
+#else
 void _hx_ssl_conf_set_servername_callback( Dynamic hconf, Dynamic cb ){
+#endif
 	sslconf *conf = val_conf(hconf);
 	mbedtls_ssl_conf_sni( conf->c, sni_callback, (void *)cb.mPtr );
 }
@@ -573,6 +629,10 @@ Dynamic _hx_ssl_cert_load_defaults(){
 	CFRelease(keychain);
 	if( chain != NULL )
 		return chain;
+#elif defined(IPHONE) || defined(APPLETV) // SystemRootCertificates.keychain doesn't exist on iOS and tvOS so i use a cool workaround
+    sslcert *chain = new sslcert();
+    chain->create(NULL); // creates a ssl cert with only the default ones that iOS or tvOS trust in the os
+    return chain;
 #endif
 	return null();
 }
