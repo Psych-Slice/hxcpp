@@ -1,4 +1,5 @@
 <xml>
+ <flag value="-march=${HXCPP_EXACT_MARCH}" if="HXCPP_EXACT_MARCH"/>
  <flag value="-DHXCPP_DEBUG" if="debug" />
  <flag value="-DSTATIC_LINK" if="static_link" tag="static" />
  <flag value="-DHXCPP_EXE_LINK" if="exe_link" tag="static" />

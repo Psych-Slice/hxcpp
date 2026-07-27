@@ -140,7 +140,7 @@
     <flag value="-fno-asynchronous-unwind-tables" />
   </section>
   <section if="HXCPP_OPTIMIZE_FOR_FAST" unless="debug">
-    <flag value="-Ofast" />
+    <flag value="-O3" />
   </section>
   <flag value="-O0" if="debug"/>
   <flag value="-g" if="HXCPP_DEBUG_LINK"/>

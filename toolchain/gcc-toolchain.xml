@@ -4,7 +4,7 @@
 <set name="USE_PRECOMPILED_HEADERS" value="gcc" unless="NO_PRECOMPILED_HEADERS"/>
 
 <set name="USE_GCC_FILETYPES" value="1"/>
-
+   
 <linker id="static_link" exe="ar" unless="windows">
   <ext value="${LIBEXT}"/>
 
